@@ -150,29 +150,27 @@ function createTray() {
   let trayIcon: Electron.NativeImage;
 
   if (process.platform === 'darwin') {
-    // macOS: Use a template image for proper menu bar appearance
-    // Template images are monochrome and the system handles light/dark mode
-    // 16x16 base size, with @2x (32x32) for Retina displays
-    const macTrayIcon = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-        <path fill="black" d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z"/>
-        <path fill="black" d="M3.5 6.5a.5.5 0 0 1 1 0v1a3.5 3.5 0 0 0 7 0v-1a.5.5 0 0 1 1 0v1a4.5 4.5 0 0 1-4 4.473V13.5h1.5a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1H7v-1.527a4.5 4.5 0 0 1-4-4.473v-1a.5.5 0 0 1 .5-.5z"/>
-      </svg>
-    `;
-    // Convert SVG to data URL and create image
-    const svgBuffer = Buffer.from(macTrayIcon);
-    trayIcon = nativeImage.createFromBuffer(svgBuffer);
+    // macOS: Load the app icon and resize for menu bar
+    // NOT using template mode since our icon is colorful/white
+    try {
+      trayIcon = nativeImage.createFromPath(getAssetPath('icon.png'));
 
-    // If SVG doesn't work, use a PNG data URL for the microphone icon
-    if (trayIcon.isEmpty()) {
-      // 16x16 black microphone icon (template-style)
-      trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEKSURBVDiNpZMxTsMwFIa/5ySQDkgsXIADsHEEJA7AwMbGETgCC0dgY2NjYGBgYEBILEgskJCgTWMnj8GJcNMm9CfL8vv/7/l5tqGDmU2BZ+AYOAQCsAYewF0V68eSN7MF8Ah8A+fAFXAKLIF7YF7FOpTjGDAF7oFL4AS4AS6ANbCsYl2WWFGsJrkBroE1sKhivVPiJpTDa+AKWAGLKtYvJW5COcyAOXAGLKpYv5a4CeUQ4BQ4AubA+6+4CeUA4Bg4AubAxxZuQjk8BA6AQ2AB/OziJpTDfWAGHADvW7gJ5XAGzIB9YAGs/sVNKIczeO7QJ7D6NzehHM7oY0L6nO9QAkvgC3g7/AMDIAFJl7rSzwAAAABJRU5ErkJggg==');
+      if (trayIcon.isEmpty()) {
+        throw new Error('Icon file not found');
+      }
+
+      // Resize to 18x18 for macOS menu bar
+      trayIcon = trayIcon.resize({ width: 18, height: 18 });
+
+      // Don't set as template - our icon is already designed for visibility
+      console.log('macOS tray icon ready, size:', trayIcon.getSize());
+    } catch (err) {
+      console.error('Failed to load macOS tray icon:', err);
+      // Fallback to embedded icon
+      trayIcon = nativeImage.createFromDataURL(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC'
+      );
     }
-
-    // Mark as template image so macOS handles light/dark mode automatically
-    trayIcon.setTemplateImage(true);
-
-    console.log('macOS tray icon created, size:', trayIcon.getSize());
   } else {
     // Windows/Linux: Use regular colored icon
     const trayIconPath = process.platform === 'win32'
@@ -397,18 +395,30 @@ function registerHotkeys() {
 function updateTrayIcon(recording: boolean) {
   if (!tray) return;
 
-  let icon: Electron.NativeImage;
-
   if (process.platform === 'darwin') {
-    // macOS: Use template images (black icons that the system will invert as needed)
-    // For recording state, we can use a filled microphone
-    const normalMicIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEKSURBVDiNpZMxTsMwFIa/5ySQDkgsXIADsHEEJA7AwMbGETgCC0dgY2NjYGBgYEBILEgskJCgTWMnj8GJcNMm9CfL8vv/7/l5tqGDmU2BZ+AYOAQCsAYewF0V68eSN7MF8Ah8A+fAFXAKLIF7YF7FOpTjGDAF7oFL4AS4AS6ANbCsYl2WWFGsJrkBroE1sKhivVPiJpTDa+AKWAGLKtYvJW5COcyAOXAGLKpYv5a4CeUQ4BQ4AubA+6+4CeUA4Bg4AubAxxZuQjk8BA6AQ2AB/OziJpTDfWAGHADvW7gJ5XAGzIB9YAGs/sVNKIczeO7QJ7D6NzehHM7oY0L6nO9QAkvgC3g7/AMDIAFJl7rSzwAAAABJRU5ErkJggg==';
+    // macOS: Use template image (black on transparent)
+    // Same icon for both states - recording state shown in overlay
+    const blackMicrophoneIcon =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAA' +
+      'AQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAO' +
+      'wwAADsMBx2+oZAAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0ID' +
+      'QuMC4xMkMEa+wAAADISURBVDhPrZLBDYMwDEV/OkQ3YAPYoBu0' +
+      'G7BBN+gGsAEbdINu0A3aDegGpL+Rk5AEVKkn/QTB/s+O7QRJDJ' +
+      'mZE+AKwMnMggVnYGNmhwQ4BWBrZqEBiTGzSII1sEOGJBJYA1tk' +
+      'aEBiDGyQIQEr4Bb+TDewBFbIMBNYAzfAfwNWwBIZZgJr4AY4AE' +
+      'tgCdySYSqwBm7A36rAAlgiw1RgBdyA+0uwABbAEhkmAmvgBvyt' +
+      'IZgDC2AJLIBbMkwE1sANuP8Ec2ABLIAFcEuGfwOSL/uTXDqp97' +
+      '/hAAAAAElFTkSuQmCC';
 
-    // Recording icon: filled/solid microphone with a dot indicator
-    const recordingMicIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEtSURBVDiNpZKxTsNADIb/80UKGZBYWIAB2HgEJB6AgY2NR+ARWBAZY2Nj6MDAQAdEBiQWSEjQS+4u/gyXKE1oJf5Jsu3v/Gz7gA4zmwM3wBFwAATgBbgGLqtUx9vyzGwMXANr4Ag4Bw6BJXAFTKtUp+U6hswcmAKXwCFwBhwDS2BVpToqsSKxTJL2HJgDK2BZpfquxE0ohUfABbAGllWqH0rchFI4BabAMbCqUv1a4iaUQoAD4ACYA++/4iaUwhAwBI6AOfC2g5tQCvvAGBgC8x3chFLYA8bAEFgA63/RhFLYpe+EfAdr4F80oRR26HdCeoeudrQJpXCDfk/Iz3jXoAklsEHfJ+TTdLNJE0pgQ78n5DPbtqEU/6TfE/LpaOMmBP/h/wHSHRzZFYlUfQAAAABJRU5ErkJggg==';
-
-    icon = nativeImage.createFromDataURL(recording ? recordingMicIcon : normalMicIcon);
-    icon.setTemplateImage(true);
+    try {
+      let icon = nativeImage.createFromDataURL(blackMicrophoneIcon);
+      if (!icon.isEmpty()) {
+        icon.setTemplateImage(true);
+        tray.setImage(icon);
+      }
+    } catch (err) {
+      console.error('Failed to update tray icon:', err);
+    }
   } else {
     // Windows/Linux: Use colored icons
     // White icon for normal, red for recording
@@ -417,10 +427,9 @@ function updateTrayIcon(recording: boolean) {
     // Red-tinted icon for recording state
     const recordingIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA+klEQVR4nGNgGAWjAAYYWFhYGP7//8/AwMDAIC0tzfD//38GBgYGBiYmJob///8zSEhIMPz584fh379/DH///mVgYGBgYGFhYZCUlGT4/fs3w58/fxj+/v3LwMDAwMDKysogLi7O8OvXL4bfv38z/PnzhwEZsLKyMoiJiTH8/PmT4devXwx//vxhQAasrKwMIiIiH378+MHw8+dPht+/fzP8//+fARmwsrIyCAkJffj+/TvDjx8/GH7+/Mnw+/dvBmTAysrKICAg8IGBgYHh+/fvDD9+/GD4+fMnw+/fvxmQASsrKwM/P/8HBgYGhm/fvjH8+PGD4efPnwy/f/9mYBwFAAB9jzyOMv9j8QAAAABJRU5ErkJggg==';
 
-    icon = nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon);
+    const icon = nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon);
+    tray.setImage(icon);
   }
-
-  tray.setImage(icon);
 }
 
 // Default settings
