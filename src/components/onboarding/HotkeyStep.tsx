@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 interface HotkeyStepProps {
   onNext: (hotkey: string) => void;
@@ -6,25 +6,43 @@ interface HotkeyStepProps {
   initialValue: string;
 }
 
-const PRESET_HOTKEYS = [
-  { value: 'CommandOrControl+Shift+Space', label: 'Ctrl + Shift + Space', description: 'Recommended' },
-  { value: 'Alt+Space', label: 'Alt + Space', description: 'Quick access' },
-  { value: 'CommandOrControl+Shift+D', label: 'Ctrl + Shift + D', description: 'D for Dictate' },
-];
-
 export function HotkeyStep({ onNext, onBack, initialValue }: HotkeyStepProps) {
   const [selectedHotkey, setSelectedHotkey] = useState(initialValue);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [customKeys, setCustomKeys] = useState<string[]>([]);
 
-  const formatHotkeyDisplay = (hotkey: string): string => {
+  // Detect platform
+  const isMac = useMemo(() => {
+    if (typeof navigator !== 'undefined') {
+      return navigator.platform.toUpperCase().indexOf('MAC') >= 0 ||
+             navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
+    }
+    return false;
+  }, []);
+
+  const PRESET_HOTKEYS = useMemo(() => [
+    { value: 'CommandOrControl+Shift+Space', label: isMac ? 'Cmd + Shift + Space' : 'Ctrl + Shift + Space', description: 'Recommended' },
+    { value: 'Alt+Space', label: isMac ? 'Option + Space' : 'Alt + Space', description: 'Quick access' },
+    { value: 'CommandOrControl+Shift+D', label: isMac ? 'Cmd + Shift + D' : 'Ctrl + Shift + D', description: 'D for Dictate' },
+  ], [isMac]);
+
+  const formatHotkeyDisplay = useCallback((hotkey: string): string => {
+    if (isMac) {
+      return hotkey
+        .replace('CommandOrControl', 'Cmd')
+        .replace('Command', 'Cmd')
+        .replace('Control', 'Ctrl')
+        .replace('Super', 'Cmd')
+        .replace('Alt', 'Option')
+        .replace(/\+/g, ' + ');
+    }
     return hotkey
       .replace('CommandOrControl', 'Ctrl')
-      .replace('Command', 'Cmd')
+      .replace('Command', 'Ctrl')
       .replace('Control', 'Ctrl')
       .replace('Super', 'Win')
       .replace(/\+/g, ' + ');
-  };
+  }, [isMac]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!isCustomizing) return;
@@ -34,9 +52,16 @@ export function HotkeyStep({ onNext, onBack, initialValue }: HotkeyStepProps) {
 
     const keys: string[] = [];
 
-    if (e.ctrlKey || e.metaKey) keys.push('Ctrl');
+    // On Mac, Cmd key (metaKey) should map to CommandOrControl
+    // On Windows/Linux, Ctrl key should map to CommandOrControl
+    if (isMac) {
+      if (e.metaKey) keys.push('Cmd'); // Display as Cmd, will convert to CommandOrControl
+      if (e.ctrlKey) keys.push('Ctrl');
+    } else {
+      if (e.ctrlKey || e.metaKey) keys.push('Ctrl');
+    }
     if (e.shiftKey) keys.push('Shift');
-    if (e.altKey) keys.push('Alt');
+    if (e.altKey) keys.push(isMac ? 'Option' : 'Alt');
 
     // Get the actual key
     const key = e.key;
@@ -47,20 +72,22 @@ export function HotkeyStep({ onNext, onBack, initialValue }: HotkeyStepProps) {
     }
 
     setCustomKeys(keys);
-  }, [isCustomizing]);
+  }, [isCustomizing, isMac]);
 
   const handleKeyUp = useCallback((_e: KeyboardEvent) => {
     if (!isCustomizing || customKeys.length === 0) return;
 
     // Check if we have at least a modifier + key
-    const hasModifier = customKeys.some(k => ['Ctrl', 'Shift', 'Alt'].includes(k));
-    const hasKey = customKeys.some(k => !['Ctrl', 'Shift', 'Alt'].includes(k));
+    const modifiers = isMac ? ['Cmd', 'Ctrl', 'Shift', 'Option'] : ['Ctrl', 'Shift', 'Alt'];
+    const hasModifier = customKeys.some(k => modifiers.includes(k));
+    const hasKey = customKeys.some(k => !modifiers.includes(k));
 
     if (hasModifier && hasKey) {
       // Convert to Electron format
       const electronHotkey = customKeys
         .map(k => {
-          if (k === 'Ctrl') return 'CommandOrControl';
+          if (k === 'Cmd' || k === 'Ctrl') return 'CommandOrControl';
+          if (k === 'Option') return 'Alt';
           return k;
         })
         .join('+');
@@ -69,7 +96,7 @@ export function HotkeyStep({ onNext, onBack, initialValue }: HotkeyStepProps) {
       setIsCustomizing(false);
       setCustomKeys([]);
     }
-  }, [isCustomizing, customKeys]);
+  }, [isCustomizing, customKeys, isMac]);
 
   useEffect(() => {
     if (isCustomizing) {

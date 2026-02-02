@@ -147,39 +147,62 @@ function createOverlayWindow() {
 }
 
 function createTray() {
-  // Try to load platform-specific icon from assets folder
-  // Use 16x16 for Windows tray, which needs small icons
-  const trayIconPath = process.platform === 'win32'
-    ? getAssetPath('windows', '16x16.png')
-    : getAssetPath('icon.png');
-
   let trayIcon: Electron.NativeImage;
 
-  try {
-    console.log('Loading tray icon from:', trayIconPath);
-    trayIcon = nativeImage.createFromPath(trayIconPath);
+  if (process.platform === 'darwin') {
+    // macOS: Use a template image for proper menu bar appearance
+    // Template images are monochrome and the system handles light/dark mode
+    // 16x16 base size, with @2x (32x32) for Retina displays
+    const macTrayIcon = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+        <path fill="black" d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z"/>
+        <path fill="black" d="M3.5 6.5a.5.5 0 0 1 1 0v1a3.5 3.5 0 0 0 7 0v-1a.5.5 0 0 1 1 0v1a4.5 4.5 0 0 1-4 4.473V13.5h1.5a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1H7v-1.527a4.5 4.5 0 0 1-4-4.473v-1a.5.5 0 0 1 .5-.5z"/>
+      </svg>
+    `;
+    // Convert SVG to data URL and create image
+    const svgBuffer = Buffer.from(macTrayIcon);
+    trayIcon = nativeImage.createFromBuffer(svgBuffer);
 
+    // If SVG doesn't work, use a PNG data URL for the microphone icon
     if (trayIcon.isEmpty()) {
-      // Try the main icon as fallback
-      const fallbackPath = getAssetPath('icon.png');
-      console.log('Tray icon empty, trying fallback:', fallbackPath);
-      trayIcon = nativeImage.createFromPath(fallbackPath);
-
-      if (trayIcon.isEmpty()) {
-        throw new Error('Both icon paths failed');
-      }
-
-      // Resize if using the larger icon
-      if (process.platform === 'win32') {
-        trayIcon = trayIcon.resize({ width: 16, height: 16 });
-      }
+      // 16x16 black microphone icon (template-style)
+      trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEKSURBVDiNpZMxTsMwFIa/5ySQDkgsXIADsHEEJA7AwMbGETgCC0dgY2NjYGBgYEBILEgskJCgTWMnj8GJcNMm9CfL8vv/7/l5tqGDmU2BZ+AYOAQCsAYewF0V68eSN7MF8Ah8A+fAFXAKLIF7YF7FOpTjGDAF7oFL4AS4AS6ANbCsYl2WWFGsJrkBroE1sKhivVPiJpTDa+AKWAGLKtYvJW5COcyAOXAGLKpYv5a4CeUQ4BQ4AubA+6+4CeUA4Bg4AubAxxZuQjk8BA6AQ2AB/OziJpTDfWAGHADvW7gJ5XAGzIB9YAGs/sVNKIczeO7QJ7D6NzehHM7oY0L6nO9QAkvgC3g7/AMDIAFJl7rSzwAAAABJRU5ErkJggg==');
     }
 
-    console.log('Tray icon loaded, size:', trayIcon.getSize());
-  } catch (err) {
-    console.error('Failed to load tray icon:', err);
-    // Fallback to embedded white microphone icon
-    trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC');
+    // Mark as template image so macOS handles light/dark mode automatically
+    trayIcon.setTemplateImage(true);
+
+    console.log('macOS tray icon created, size:', trayIcon.getSize());
+  } else {
+    // Windows/Linux: Use regular colored icon
+    const trayIconPath = process.platform === 'win32'
+      ? getAssetPath('windows', '16x16.png')
+      : getAssetPath('icon.png');
+
+    try {
+      console.log('Loading tray icon from:', trayIconPath);
+      trayIcon = nativeImage.createFromPath(trayIconPath);
+
+      if (trayIcon.isEmpty()) {
+        const fallbackPath = getAssetPath('icon.png');
+        console.log('Tray icon empty, trying fallback:', fallbackPath);
+        trayIcon = nativeImage.createFromPath(fallbackPath);
+
+        if (trayIcon.isEmpty()) {
+          throw new Error('Both icon paths failed');
+        }
+
+        if (process.platform === 'win32') {
+          trayIcon = trayIcon.resize({ width: 16, height: 16 });
+        }
+      }
+
+      console.log('Tray icon loaded, size:', trayIcon.getSize());
+    } catch (err) {
+      console.error('Failed to load tray icon:', err);
+      // Fallback to embedded white microphone icon
+      trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC');
+    }
   }
 
   tray = new Tray(trayIcon);
@@ -224,7 +247,13 @@ function createTray() {
 }
 
 function registerHotkeys() {
-  const hotkey = (store.get('hotkey') as string) || 'CommandOrControl+Shift+Space';
+  let hotkey = (store.get('hotkey') as string) || 'CommandOrControl+Shift+Space';
+
+  // Sanitize hotkey for current platform
+  if (process.platform === 'darwin') {
+    // On macOS, convert Super to Command (Super is Windows key, not valid on Mac)
+    hotkey = hotkey.replace(/Super/g, 'Command');
+  }
 
   console.log('Registering hotkey:', hotkey);
 
@@ -238,15 +267,16 @@ function registerHotkeys() {
       overlayWindow?.webContents.send('recording-start');
       updateTrayIcon(true);
 
-      // Poll for key release (Windows)
-      if (process.platform === 'win32') {
-        // Parse which modifiers are in the hotkey
-        const hotkeyLower = hotkey.toLowerCase();
-        const hasCtrl = hotkeyLower.includes('control') || hotkeyLower.includes('commandorcontrol');
-        const hasShift = hotkeyLower.includes('shift');
-        const hasAlt = hotkeyLower.includes('alt');
-        const hasWin = hotkeyLower.includes('super') || hotkeyLower.includes('meta');
+      // Poll for key release
+      // Parse which modifiers are in the hotkey
+      const hotkeyLower = hotkey.toLowerCase();
+      const hasCtrl = hotkeyLower.includes('control') || hotkeyLower.includes('commandorcontrol');
+      const hasShift = hotkeyLower.includes('shift');
+      const hasAlt = hotkeyLower.includes('alt') || hotkeyLower.includes('option');
+      const hasWin = hotkeyLower.includes('super') || hotkeyLower.includes('meta');
+      const hasCmd = hotkeyLower.includes('command') || hotkeyLower.includes('commandorcontrol');
 
+      if (process.platform === 'win32') {
         const checkKeys = () => {
           if (!isRecording) return;
 
@@ -293,6 +323,54 @@ function registerHotkeys() {
         };
 
         setTimeout(checkKeys, 300);
+      } else if (process.platform === 'darwin') {
+        // macOS: Use JXA (JavaScript for Automation) to query NSEvent.modifierFlags
+        const checkKeysMac = () => {
+          if (!isRecording) return;
+
+          // Use osascript with JXA to get current modifier key state
+          const script = `osascript -l JavaScript -e '
+            ObjC.import("Cocoa");
+            var flags = $.NSEvent.modifierFlags;
+            var shift = (flags & $.NSEventModifierFlagShift) !== 0;
+            var control = (flags & $.NSEventModifierFlagControl) !== 0;
+            var command = (flags & $.NSEventModifierFlagCommand) !== 0;
+            var option = (flags & $.NSEventModifierFlagOption) !== 0;
+            JSON.stringify({shift: shift, control: control, command: command, option: option});
+          '`;
+
+          exec(script, (error, stdout) => {
+            if (error) {
+              setTimeout(checkKeysMac, 100);
+              return;
+            }
+
+            try {
+              const modifiers = JSON.parse(stdout.trim());
+
+              // Check if the required modifiers are still held
+              let stillHeld = false;
+              if (hasCmd && modifiers.command) stillHeld = true;
+              if (hasCtrl && modifiers.control) stillHeld = true;
+              if (hasShift && modifiers.shift) stillHeld = true;
+              if (hasAlt && modifiers.option) stillHeld = true;
+
+              if (!stillHeld) {
+                if (isRecording) {
+                  isRecording = false;
+                  overlayWindow?.webContents.send('recording-stop');
+                  updateTrayIcon(false);
+                }
+              } else {
+                setTimeout(checkKeysMac, 100);
+              }
+            } catch {
+              setTimeout(checkKeysMac, 100);
+            }
+          });
+        };
+
+        setTimeout(checkKeysMac, 300);
       }
     }
   });
@@ -319,14 +397,30 @@ function registerHotkeys() {
 function updateTrayIcon(recording: boolean) {
   if (!tray) return;
 
-  // Use same white icon, but could swap to red during recording if desired
-  // For now, keeping it consistent white as it's more visible on both light and dark taskbars
-  const normalIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC';
+  let icon: Electron.NativeImage;
 
-  // Red-tinted icon for recording state
-  const recordingIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA+klEQVR4nGNgGAWjAAYYWFhYGP7//8/AwMDAIC0tzfD//38GBgYGBiYmJob///8zSEhIMPz584fh379/DH///mVgYGBgYGFhYZCUlGT4/fs3w58/fxj+/v3LwMDAwMDKysogLi7O8OvXL4bfv38z/PnzhwEZsLKyMoiJiTH8/PmT4devXwx//vxhQAasrKwMIiIiH378+MHw8+dPht+/fzP8//+fARmwsrIyCAkJffj+/TvDjx8/GH7+/Mnw+/dvBmTAysrKICAg8IGBgYHh+/fvDD9+/GD4+fMnw+/fvxmQASsrKwM/P/8HBgYGhm/fvjH8+PGD4efPnwy/f/9mYBwFAAB9jzyOMv9j8QAAAABJRU5ErkJggg==';
+  if (process.platform === 'darwin') {
+    // macOS: Use template images (black icons that the system will invert as needed)
+    // For recording state, we can use a filled microphone
+    const normalMicIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEKSURBVDiNpZMxTsMwFIa/5ySQDkgsXIADsHEEJA7AwMbGETgCC0dgY2NjYGBgYEBILEgskJCgTWMnj8GJcNMm9CfL8vv/7/l5tqGDmU2BZ+AYOAQCsAYewF0V68eSN7MF8Ah8A+fAFXAKLIF7YF7FOpTjGDAF7oFL4AS4AS6ANbCsYl2WWFGsJrkBroE1sKhivVPiJpTDa+AKWAGLKtYvJW5COcyAOXAGLKpYv5a4CeUQ4BQ4AubA+6+4CeUA4Bg4AubAxxZuQjk8BA6AQ2AB/OziJpTDfWAGHADvW7gJ5XAGzIB9YAGs/sVNKIczeO7QJ7D6NzehHM7oY0L6nO9QAkvgC3g7/AMDIAFJl7rSzwAAAABJRU5ErkJggg==';
 
-  tray.setImage(nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon));
+    // Recording icon: filled/solid microphone with a dot indicator
+    const recordingMicIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAEtSURBVDiNpZKxTsNADIb/80UKGZBYWIAB2HgEJB6AgY2NR+ARWBAZY2Nj6MDAQAdEBiQWSEjQS+4u/gyXKE1oJf5Jsu3v/Gz7gA4zmwM3wBFwAATgBbgGLqtUx9vyzGwMXANr4Ag4Bw6BJXAFTKtUp+U6hswcmAKXwCFwBhwDS2BVpToqsSKxTJL2HJgDK2BZpfquxE0ohUfABbAGllWqH0rchFI4BabAMbCqUv1a4iaUQoAD4ACYA++/4iaUwhAwBI6AOfC2g5tQCvvAGBgC8x3chFLYA8bAEFgA63/RhFLYpe+EfAdr4F80oRR26HdCeoeudrQJpXCDfk/Iz3jXoAklsEHfJ+TTdLNJE0pgQ78n5DPbtqEU/6TfE/LpaOMmBP/h/wHSHRzZFYlUfQAAAABJRU5ErkJggg==';
+
+    icon = nativeImage.createFromDataURL(recording ? recordingMicIcon : normalMicIcon);
+    icon.setTemplateImage(true);
+  } else {
+    // Windows/Linux: Use colored icons
+    // White icon for normal, red for recording
+    const normalIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC';
+
+    // Red-tinted icon for recording state
+    const recordingIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA+klEQVR4nGNgGAWjAAYYWFhYGP7//8/AwMDAIC0tzfD//38GBgYGBiYmJob///8zSEhIMPz584fh379/DH///mVgYGBgYGFhYZCUlGT4/fs3w58/fxj+/v3LwMDAwMDKysogLi7O8OvXL4bfv38z/PnzhwEZsLKyMoiJiTH8/PmT4devXwx//vxhQAasrKwMIiIiH378+MHw8+dPht+/fzP8//+fARmwsrIyCAkJffj+/TvDjx8/GH7+/Mnw+/dvBmTAysrKICAg8IGBgYHh+/fvDD9+/GD4+fMnw+/fvxmQASsrKwM/P/8HBgYGhm/fvjH8+PGD4efPnwy/f/9mYBwFAAB9jzyOMv9j8QAAAABJRU5ErkJggg==';
+
+    icon = nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon);
+  }
+
+  tray.setImage(icon);
 }
 
 // Default settings
@@ -472,7 +566,16 @@ ipcMain.handle('type-text', async (_, text: string) => {
           resolve(!error);
         });
       });
+    } else if (process.platform === 'darwin') {
+      return new Promise((resolve) => {
+        // Use AppleScript to simulate Cmd+V paste
+        const script = `osascript -e 'tell application "System Events" to keystroke "v" using command down'`;
+        exec(script, (error) => {
+          resolve(!error);
+        });
+      });
     } else {
+      // Linux fallback - just return true, clipboard is already set
       return true;
     }
   } catch (error) {
@@ -542,6 +645,10 @@ function playSound(type: 'start' | 'stop' | 'error') {
     const duration = type === 'error' ? 200 : 80;
     const psCommand = `powershell -Command "[console]::beep(${frequency}, ${duration})"`;
     exec(psCommand, () => {});
+  } else if (process.platform === 'darwin') {
+    // Use macOS system sounds
+    const sound = type === 'start' ? 'Tink' : type === 'stop' ? 'Pop' : 'Basso';
+    exec(`afplay /System/Library/Sounds/${sound}.aiff`, () => {});
   }
 }
 

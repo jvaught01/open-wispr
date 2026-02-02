@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Modal } from './Modal';
 
 interface Settings {
@@ -108,16 +108,34 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
     }
   };
 
-  // Hotkey capture handlers
-  const formatHotkeyDisplay = (hotkey: string): string => {
+  // Hotkey capture handlers - detect platform
+  const isMac = useMemo(() => {
+    if (typeof navigator !== 'undefined') {
+      return navigator.platform.toUpperCase().indexOf('MAC') >= 0 ||
+             navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
+    }
+    return false;
+  }, []);
+
+  const formatHotkeyDisplay = useCallback((hotkey: string): string => {
+    if (isMac) {
+      return hotkey
+        .replace('CommandOrControl', 'Cmd')
+        .replace('Command', 'Cmd')
+        .replace('Control', 'Ctrl')
+        .replace('Super', 'Cmd')
+        .replace('Meta', 'Cmd')
+        .replace('Alt', 'Option')
+        .replace(/\+/g, ' + ');
+    }
     return hotkey
       .replace('CommandOrControl', 'Ctrl')
-      .replace('Command', 'Cmd')
+      .replace('Command', 'Ctrl')
       .replace('Control', 'Ctrl')
       .replace('Super', 'Win')
       .replace('Meta', 'Win')
       .replace(/\+/g, ' + ');
-  };
+  }, [isMac]);
 
   const saveHotkeyTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -148,20 +166,36 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
     // Detect modifiers - check the actual key being pressed too
     const key = e.key;
     const code = e.code;
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
-    // Windows/Meta key
+    // Meta key: Command on Mac, Super/Win on Windows/Linux
     if (e.metaKey || key === 'Meta' || key === 'OS' || code === 'MetaLeft' || code === 'MetaRight') {
-      if (!keys.includes('Super')) keys.push('Super');
+      if (isMac) {
+        // On Mac, use CommandOrControl so it works cross-platform
+        if (!keys.includes('CommandOrControl')) keys.push('CommandOrControl');
+      } else {
+        // On Windows/Linux, Meta is the Windows/Super key
+        if (!keys.includes('Super')) keys.push('Super');
+      }
     }
     // Ctrl key
     if (e.ctrlKey || key === 'Control' || code === 'ControlLeft' || code === 'ControlRight') {
-      if (!keys.includes('Control')) keys.push('Control');
+      // On Mac, if Cmd is also pressed, don't add Control separately (it's already CommandOrControl)
+      if (isMac && keys.includes('CommandOrControl')) {
+        // Skip - CommandOrControl already covers this
+      } else if (!isMac) {
+        // On Windows/Linux, Ctrl should map to CommandOrControl for cross-platform compatibility
+        if (!keys.includes('CommandOrControl')) keys.push('CommandOrControl');
+      } else {
+        // Mac with only Ctrl (no Cmd) - use Control
+        if (!keys.includes('Control')) keys.push('Control');
+      }
     }
     // Shift key
     if (e.shiftKey || key === 'Shift' || code === 'ShiftLeft' || code === 'ShiftRight') {
       if (!keys.includes('Shift')) keys.push('Shift');
     }
-    // Alt key
+    // Alt key (Option on Mac)
     if (e.altKey || key === 'Alt' || code === 'AltLeft' || code === 'AltRight') {
       if (!keys.includes('Alt')) keys.push('Alt');
     }
@@ -173,7 +207,7 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
       keys.push(finalKey);
     }
 
-    console.log('Keys detected:', keys, 'key:', key, 'code:', code);
+    console.log('Keys detected:', keys, 'key:', key, 'code:', code, 'isMac:', isMac);
     setCapturedKeys([...keys]);
   }, [isCapturingHotkey]);
 
@@ -644,7 +678,7 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
                 <label className="block text-xs text-white/40 mb-2">Choose a preset</label>
                 <select
                   value={
-                    ['CommandOrControl+Shift+Space', 'CommandOrControl+Shift+V', 'Alt+Space', 'F9', 'Super+Shift+Space', 'Super+Space'].includes(settings.hotkey)
+                    ['CommandOrControl+Shift+Space', 'CommandOrControl+Shift+V', 'Alt+Space', 'F9', 'CommandOrControl+Space'].includes(settings.hotkey)
                       ? settings.hotkey
                       : 'custom'
                   }
@@ -655,11 +689,10 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
                   }}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-sm text-white focus:outline-none focus:border-white/30 cursor-pointer"
                 >
-                  <option value="CommandOrControl+Shift+Space" className="bg-black">Ctrl + Shift + Space</option>
-                  <option value="CommandOrControl+Shift+V" className="bg-black">Ctrl + Shift + V</option>
-                  <option value="Alt+Space" className="bg-black">Alt + Space</option>
-                  <option value="Super+Shift+Space" className="bg-black">Win + Shift + Space</option>
-                  <option value="Super+Space" className="bg-black">Win + Space</option>
+                  <option value="CommandOrControl+Shift+Space" className="bg-black">{isMac ? 'Cmd' : 'Ctrl'} + Shift + Space</option>
+                  <option value="CommandOrControl+Shift+V" className="bg-black">{isMac ? 'Cmd' : 'Ctrl'} + Shift + V</option>
+                  <option value="Alt+Space" className="bg-black">{isMac ? 'Option' : 'Alt'} + Space</option>
+                  <option value="CommandOrControl+Space" className="bg-black">{isMac ? 'Cmd' : 'Ctrl'} + Space</option>
                   <option value="F9" className="bg-black">F9</option>
                   <option value="custom" className="bg-black">Custom...</option>
                 </select>
@@ -682,9 +715,10 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
                   {isCapturingHotkey
                     ? capturedKeys.length > 0
                       ? capturedKeys.map(k =>
-                          k.replace('CommandOrControl', 'Ctrl')
+                          k.replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
                            .replace('Control', 'Ctrl')
-                           .replace('Super', 'Win')
+                           .replace('Super', isMac ? 'Cmd' : 'Win')
+                           .replace('Alt', isMac ? 'Option' : 'Alt')
                         ).join(' + ')
                       : 'Press keys...'
                     : formatHotkeyDisplay(settings.hotkey)
