@@ -1,5 +1,14 @@
 import Groq from 'groq-sdk';
 
+export interface DictionaryEntry {
+  id: string;
+  original: string;
+  corrected: string;
+  caseSensitive: boolean;
+  enabled: boolean;
+  createdAt: number;
+}
+
 export interface PostProcessingOptions {
   removeFillerWords: boolean;  // Remove ums, uhs, like, you know
   removeFalseStarts: boolean;  // Remove stutters and false starts
@@ -7,6 +16,7 @@ export interface PostProcessingOptions {
   fixCapitalization: boolean;  // Fix sentence capitalization
   fixGrammar: boolean;         // Fix basic grammar issues
   smartFormatting: boolean;    // Format lists, numbers, dates intelligently
+  dictionary?: DictionaryEntry[];  // Custom spelling corrections
 }
 
 export const DEFAULT_POST_PROCESSING_OPTIONS: PostProcessingOptions = {
@@ -64,6 +74,28 @@ export async function postProcessTranscription(
     instructions.push('Format numbers, dates, and lists appropriately');
   }
 
+  // Build dictionary corrections instruction if dictionary has enabled entries
+  let dictionaryInstruction = '';
+  if (options.dictionary && options.dictionary.length > 0) {
+    const enabledEntries = options.dictionary
+      .filter(entry => entry.enabled)
+      // Sort by length descending to process longer phrases first
+      .sort((a, b) => b.original.length - a.original.length);
+
+    if (enabledEntries.length > 0) {
+      const corrections = enabledEntries.map(entry => {
+        const caseNote = entry.caseSensitive ? ' (case-sensitive)' : '';
+        return `- "${entry.original}" → "${entry.corrected}"${caseNote}`;
+      }).join('\n');
+
+      dictionaryInstruction = `
+Apply these spelling corrections (when you encounter the left term, use the right spelling instead). Match whole words only to avoid replacing parts of other words:
+${corrections}
+`;
+      instructions.push('Apply the custom spelling corrections listed below');
+    }
+  }
+
   const systemPrompt = `You are a text cleaner. You receive raw speech-to-text transcriptions and output ONLY the cleaned version.
 
 CRITICAL RULES:
@@ -77,7 +109,7 @@ CRITICAL RULES:
 
 Your task:
 ${instructions.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}
-
+${dictionaryInstruction}
 Preserve the speaker's original meaning, voice, and intent. Just clean it up.`;
 
   const userPrompt = `Clean this transcription. Output ONLY the cleaned text, nothing else:

@@ -72,6 +72,15 @@ interface Settings {
   autoUpdate: boolean;
 }
 
+interface DictionaryEntry {
+  id: string;
+  original: string;
+  corrected: string;
+  caseSensitive: boolean;
+  enabled: boolean;
+  createdAt: number;
+}
+
 export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -80,8 +89,9 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
   const [hotkey, setHotkey] = useState(initialHotkey);
   const [pillVisibility, setPillVisibility] = useState<'always' | 'recording' | 'never'>('always');
   const settingsRef = useRef<Settings | null>(null);
+  const dictionaryRef = useRef<DictionaryEntry[]>([]);
 
-  // Listen for settings changes
+  // Listen for settings changes and load dictionary
   useEffect(() => {
     const loadSettings = async () => {
       const settings = await window.electron.getSettings();
@@ -90,9 +100,18 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
       setPillVisibility(settings.pillVisibility || 'always');
     };
 
+    const loadDictionary = async () => {
+      const dictionary = await window.electron.getDictionary();
+      dictionaryRef.current = dictionary;
+    };
+
     // Load on mount and periodically check for changes
     loadSettings();
-    const interval = setInterval(loadSettings, 2000);
+    loadDictionary();
+    const interval = setInterval(() => {
+      loadSettings();
+      loadDictionary();
+    }, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -320,6 +339,7 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
                 fixCapitalization: true,
                 fixGrammar: settings.fixGrammar,
                 smartFormatting: false,
+                dictionary: dictionaryRef.current,
               });
             } catch (e) {
               console.error('Post-processing error:', e);
@@ -342,7 +362,10 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
                 });
               }
             }
-            await window.electron.typeText(text);
+            const pasteSuccess = await window.electron.typeText(text);
+            if (!pasteSuccess) {
+              console.warn('Paste may have failed - text is in clipboard');
+            }
           } else {
             setError('Empty result');
           }

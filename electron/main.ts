@@ -279,7 +279,7 @@ function registerHotkeys() {
           if (!isRecording) return;
 
           // Check all relevant modifier keys
-          const psCommand = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $mods = [System.Windows.Forms.Control]::ModifierKeys; $win = (Get-Process | Where-Object {$_.MainWindowHandle -ne 0} | ForEach-Object { $null }); Write-Output $mods"`;
+          const psCommand = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Control]::ModifierKeys"`;
           exec(psCommand, (error, stdout) => {
             if (error) {
               setTimeout(checkKeys, 100);
@@ -393,7 +393,11 @@ function registerHotkeys() {
 }
 
 function updateTrayIcon(recording: boolean) {
-  if (!tray) return;
+  if (!tray) {
+    console.warn('updateTrayIcon called but tray is null');
+    return;
+  }
+  console.log('updateTrayIcon:', recording ? 'recording' : 'idle');
 
   if (process.platform === 'darwin') {
     // macOS: Use template image (black on transparent)
@@ -425,10 +429,22 @@ function updateTrayIcon(recording: boolean) {
     const normalIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC';
 
     // Red-tinted icon for recording state
-    const recordingIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA+klEQVR4nGNgGAWjAAYYWFhYGP7//8/AwMDAIC0tzfD//38GBgYGBiYmJob///8zSEhIMPz584fh379/DH///mVgYGBgYGFhYZCUlGT4/fs3w58/fxj+/v3LwMDAwMDKysogLi7O8OvXL4bfv38z/PnzhwEZsLKyMoiJiTH8/PmT4devXwx//vxhQAasrKwMIiIiH378+MHw8+dPht+/fzP8//+fARmwsrIyCAkJffj+/TvDjx8/GH7+/Mnw+/dvBmTAysrKICAg8IGBgYHh+/fvDD9+/GD4+fMnw+/fvxmQASsrKwM/P/8HBgYGhm/fvjH8+PGD4efPnwy/f/9mYBwFAAB9jzyOMv9j8QAAAABJRU5ErkJggg==';
+    const recordingIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA+klEQVR4nGNgGAWjAAYYWFhYGP7//8/AwMDAIC0tzfD//38GBgYGBiYmJob///8zSEhIMPz584fh379/DH///mVgYGBgYGFhYZCUlGT4/fs3w58/fxj+/v3LwMDAwMDKysogLi7O8OvXL4bfv38z/PnzhwEZsLKyMoiJiTH8/PmT4devXwx//vxhQAasrKwMIiIiH378+MHw8+dvht+/fzP8//+fARmwsrIyCAkJffj+/TvDjx8/GH7+/Mnw+/dvBmTAysrKICAg8IGBgYHh+/fvDD9+/GD4+fMnw+/fvxmQASsrKwM/P/8HBgYGhm/fvjH8+PGD4efPnwy/f/9mYBwFAAB9jzyOMv9j8QAAAABJRU5ErkJggg==';
 
-    const icon = nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon);
-    tray.setImage(icon);
+    try {
+      let icon = nativeImage.createFromDataURL(recording ? recordingIcon : normalIcon);
+      if (!icon.isEmpty()) {
+        // Ensure icon is 16x16 on Windows for proper tray display
+        if (process.platform === 'win32') {
+          icon = icon.resize({ width: 16, height: 16 });
+        }
+        tray.setImage(icon);
+      } else {
+        console.error('Created empty tray icon, skipping update');
+      }
+    } catch (err) {
+      console.error('Failed to update tray icon:', err);
+    }
   }
 }
 
@@ -564,14 +580,25 @@ ipcMain.handle('type-text', async (_, text: string) => {
     // Copy text to clipboard
     clipboard.writeText(text);
 
-    // Delay to let focus settle
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Blur the overlay window to ensure focus returns to the previous app
+    if (overlayWindow) {
+      overlayWindow.blur();
+    }
+
+    // Delay to let focus settle back to the target application
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     if (process.platform === 'win32') {
       return new Promise((resolve) => {
         // Use PowerShell to simulate Ctrl+V paste
-        const psCommand = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 50; [System.Windows.Forms.SendKeys]::SendWait('^v')"`;
-        exec(psCommand, (error) => {
+        // Use -WindowStyle Hidden to prevent PowerShell window flash
+        // Add small delay after assembly load to ensure it's ready
+        const psCommand = `powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 50; [System.Windows.Forms.SendKeys]::SendWait('^v')"`;
+        exec(psCommand, { windowsHide: true }, (error, stdout, stderr) => {
+          if (error) {
+            console.error('Paste failed:', error.message);
+            if (stderr) console.error('stderr:', stderr);
+          }
           resolve(!error);
         });
       });
@@ -579,7 +606,11 @@ ipcMain.handle('type-text', async (_, text: string) => {
       return new Promise((resolve) => {
         // Use AppleScript to simulate Cmd+V paste
         const script = `osascript -e 'tell application "System Events" to keystroke "v" using command down'`;
-        exec(script, (error) => {
+        exec(script, (error, stdout, stderr) => {
+          if (error) {
+            console.error('Paste failed:', error.message);
+            if (stderr) console.error('stderr:', stderr);
+          }
           resolve(!error);
         });
       });
@@ -588,6 +619,7 @@ ipcMain.handle('type-text', async (_, text: string) => {
       return true;
     }
   } catch (error) {
+    console.error('type-text error:', error);
     return false;
   }
 });
@@ -632,6 +664,48 @@ ipcMain.handle('delete-history-item', (_, id: string) => {
   return newHistory;
 });
 
+// Dictionary IPC handlers
+interface DictionaryEntry {
+  id: string;
+  original: string;
+  corrected: string;
+  caseSensitive: boolean;
+  enabled: boolean;
+  createdAt: number;
+}
+
+ipcMain.handle('get-dictionary', () => {
+  return (store.get('dictionary') as DictionaryEntry[]) || [];
+});
+
+ipcMain.handle('add-dictionary-entry', (_, entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => {
+  const dictionary = (store.get('dictionary') as DictionaryEntry[]) || [];
+  const newEntry: DictionaryEntry = {
+    ...entry,
+    id: Date.now().toString(),
+    createdAt: Date.now(),
+  };
+  const newDictionary = [newEntry, ...dictionary];
+  store.set('dictionary', newDictionary);
+  return newDictionary;
+});
+
+ipcMain.handle('update-dictionary-entry', (_, id: string, updates: Partial<DictionaryEntry>) => {
+  const dictionary = (store.get('dictionary') as DictionaryEntry[]) || [];
+  const newDictionary = dictionary.map(entry =>
+    entry.id === id ? { ...entry, ...updates } : entry
+  );
+  store.set('dictionary', newDictionary);
+  return newDictionary;
+});
+
+ipcMain.handle('delete-dictionary-entry', (_, id: string) => {
+  const dictionary = (store.get('dictionary') as DictionaryEntry[]) || [];
+  const newDictionary = dictionary.filter(entry => entry.id !== id);
+  store.set('dictionary', newDictionary);
+  return newDictionary;
+});
+
 ipcMain.handle('clear-all-data', () => {
   store.clear();
   return true;
@@ -674,6 +748,16 @@ app.whenReady().then(() => {
   createOverlayWindow();
   createTray();
   registerHotkeys();
+
+  // Enable F12 to open dev tools in main window
+  if (mainWindow) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12') {
+        mainWindow?.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+    });
+  }
 });
 
 app.on('window-all-closed', () => {

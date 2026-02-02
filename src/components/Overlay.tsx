@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SentimentResult } from '../services/groq';
 import { SettingsPanel } from './SettingsPanel';
 import { HistoryPanel } from './HistoryPanel';
+import { DictionaryPanel, DictionaryEntry } from './DictionaryPanel';
+
+interface DetectedCorrection {
+  original: string;
+  corrected: string;
+}
 
 export interface TranscriptionRecord {
   id: string;
@@ -19,11 +25,15 @@ interface OverlayProps {
   wordsThisMonth: number;
   wordsTotal: number;
   history: TranscriptionRecord[];
+  dictionary: DictionaryEntry[];
   onStopRecording: () => void;
   onClose: () => void;
   onSettingsChange: () => void;
   onClearHistory: () => void;
   onDeleteHistoryItem: (id: string) => void;
+  onAddDictionaryEntry: (entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => void;
+  onUpdateDictionaryEntry: (id: string, updates: Partial<DictionaryEntry>) => void;
+  onDeleteDictionaryEntry: (id: string) => void;
 }
 
 function formatHotkey(hotkey: string): string {
@@ -45,14 +55,67 @@ export function Overlay({
   wordsThisMonth,
   wordsTotal,
   history,
+  dictionary,
   onStopRecording,
   onClose: _onClose,
   onSettingsChange,
   onClearHistory,
   onDeleteHistoryItem,
+  onAddDictionaryEntry,
+  onUpdateDictionaryEntry,
+  onDeleteDictionaryEntry,
 }: OverlayProps) {
   const [activeNav, setActiveNav] = useState<NavItem>('home');
-  const [dictationText, setDictationText] = useState('');
+  const [editableText, setEditableText] = useState('');
+  const [originalTranscript, setOriginalTranscript] = useState('');
+  const [detectedCorrection, setDetectedCorrection] = useState<DetectedCorrection | null>(null);
+  const editableTextRef = useRef('');
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    editableTextRef.current = editableText;
+  }, [editableText]);
+
+  // Track when a new transcript arrives - copy to editable state
+  // This handles transcripts from the main window's own recording
+  useEffect(() => {
+    if (transcript && transcript !== originalTranscript) {
+      setOriginalTranscript(transcript);
+      setEditableText(transcript);
+      setDetectedCorrection(null);
+    }
+  }, [transcript]);
+
+  // Handle text changes - detect when new transcription arrives via paste
+  const handleNewText = (newText: string) => {
+    const wasEmpty = !editableTextRef.current || editableTextRef.current.trim() === '';
+    const hasContent = newText && newText.trim() !== '';
+
+    setEditableText(newText);
+
+    // If textarea was empty and now has substantial content, this is likely a new transcription
+    // (substantial = more than a few characters, to avoid triggering on single keystrokes)
+    if (wasEmpty && hasContent && newText.length > 10) {
+      setOriginalTranscript(newText);
+      setDetectedCorrection(null);
+    }
+  };
+
+  const handleAddDetectedCorrection = () => {
+    if (detectedCorrection) {
+      onAddDictionaryEntry({
+        original: detectedCorrection.original,
+        corrected: detectedCorrection.corrected,
+        caseSensitive: false,
+        enabled: true,
+      });
+      setDetectedCorrection(null);
+    }
+  };
+
+  const handleDismissCorrection = () => {
+    setDetectedCorrection(null);
+  };
 
   const displayHotkey = formatHotkey(hotkey);
 
@@ -127,10 +190,15 @@ export function Overlay({
               displayHotkey={displayHotkey}
               isRecording={isRecording}
               isProcessing={isProcessing}
-              transcript={transcript}
-              dictationText={dictationText}
-              onDictationTextChange={setDictationText}
+              editableText={editableText}
+              onTextChange={handleNewText}
               onStopRecording={onStopRecording}
+              originalTranscript={originalTranscript}
+              onCorrectionDetected={setDetectedCorrection}
+              detectedCorrection={detectedCorrection}
+              onAddCorrection={handleAddDetectedCorrection}
+              onDismissCorrection={handleDismissCorrection}
+              existingDictionary={dictionary}
             />
           )}
 
@@ -143,7 +211,12 @@ export function Overlay({
           )}
 
           {activeNav === 'dictionary' && (
-            <ComingSoonPanel title="Dictionary" description="Add custom words and phrases to improve transcription accuracy." />
+            <DictionaryPanel
+              dictionary={dictionary}
+              onAddEntry={onAddDictionaryEntry}
+              onUpdateEntry={onUpdateDictionaryEntry}
+              onDeleteEntry={onDeleteDictionaryEntry}
+            />
           )}
 
           {activeNav === 'styles' && (
@@ -159,6 +232,78 @@ export function Overlay({
   );
 }
 
+// Utility function to detect word corrections
+function detectWordCorrection(
+  originalText: string,
+  editedText: string,
+  existingDictionary: DictionaryEntry[]
+): DetectedCorrection | null {
+  if (!originalText || !editedText || originalText === editedText) {
+    return null;
+  }
+
+  // Tokenize into words, preserving punctuation attached to words
+  const tokenize = (text: string) => text.split(/\s+/).filter(w => w.length > 0);
+
+  const originalWords = tokenize(originalText);
+  const editedWords = tokenize(editedText);
+
+  // Simple approach: find single word replacements
+  // If the word counts are the same, look for differences
+  if (originalWords.length === editedWords.length) {
+    const differences: { original: string; corrected: string }[] = [];
+
+    for (let i = 0; i < originalWords.length; i++) {
+      if (originalWords[i].toLowerCase() !== editedWords[i].toLowerCase()) {
+        differences.push({
+          original: originalWords[i],
+          corrected: editedWords[i],
+        });
+      }
+    }
+
+    // If exactly one word changed, that's likely a correction
+    if (differences.length === 1) {
+      const diff = differences[0];
+      // Check if this correction already exists in dictionary
+      const alreadyExists = existingDictionary.some(
+        entry => entry.original.toLowerCase() === diff.original.toLowerCase()
+      );
+      if (!alreadyExists) {
+        return diff;
+      }
+    }
+  }
+
+  // Handle case where word count changed (e.g., "Tally dot io" -> "tallie.io")
+  // Use a simple heuristic: look for the longest common subsequence and find what changed
+  if (Math.abs(originalWords.length - editedWords.length) <= 2) {
+    // Find words that are in original but not in edited (potential "from" words)
+    // Find words that are in edited but not in original (potential "to" words)
+    const originalLower = new Set(originalWords.map(w => w.toLowerCase()));
+    const editedLower = new Set(editedWords.map(w => w.toLowerCase()));
+
+    const removed = originalWords.filter(w => !editedLower.has(w.toLowerCase()));
+    const added = editedWords.filter(w => !originalLower.has(w.toLowerCase()));
+
+    // If one word was replaced with another (or a phrase collapsed to one word)
+    if (removed.length >= 1 && added.length === 1) {
+      const original = removed.join(' ');
+      const corrected = added[0];
+
+      // Check if this correction already exists in dictionary
+      const alreadyExists = existingDictionary.some(
+        entry => entry.original.toLowerCase() === original.toLowerCase()
+      );
+      if (!alreadyExists && original.toLowerCase() !== corrected.toLowerCase()) {
+        return { original, corrected };
+      }
+    }
+  }
+
+  return null;
+}
+
 // Home Panel
 function HomePanel({
   wordsThisMonth,
@@ -166,21 +311,63 @@ function HomePanel({
   displayHotkey,
   isRecording,
   isProcessing,
-  transcript,
-  dictationText,
-  onDictationTextChange,
+  editableText,
+  onTextChange,
   onStopRecording,
+  originalTranscript,
+  onCorrectionDetected,
+  detectedCorrection,
+  onAddCorrection,
+  onDismissCorrection,
+  existingDictionary,
 }: {
   wordsThisMonth: number;
   wordsTotal: number;
   displayHotkey: string;
   isRecording: boolean;
   isProcessing: boolean;
-  transcript: string;
-  dictationText: string;
-  onDictationTextChange: (text: string) => void;
+  editableText: string;
+  onTextChange: (text: string) => void;
   onStopRecording: () => void;
+  originalTranscript: string;
+  onCorrectionDetected: (correction: DetectedCorrection | null) => void;
+  detectedCorrection: DetectedCorrection | null;
+  onAddCorrection: () => void;
+  onDismissCorrection: () => void;
+  existingDictionary: DictionaryEntry[];
 }) {
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCheckedTextRef = useRef<string>('');
+
+  // Detect corrections when text changes
+  const handleTextChange = (newText: string) => {
+    onTextChange(newText);
+
+    // Debounce the correction detection
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      // Only check if we have an original transcript and the text has changed
+      if (originalTranscript && newText !== lastCheckedTextRef.current) {
+        lastCheckedTextRef.current = newText;
+        const correction = detectWordCorrection(originalTranscript, newText, existingDictionary);
+        if (correction) {
+          onCorrectionDetected(correction);
+        }
+      }
+    }, 800); // Wait 800ms after user stops typing
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
   return (
     <div className="p-10">
       <div className="max-w-2xl">
@@ -243,14 +430,45 @@ function HomePanel({
               </div>
             )}
             <textarea
-              value={transcript || dictationText}
-              onChange={(e) => onDictationTextChange(e.target.value)}
+              value={editableText}
+              onChange={(e) => handleTextChange(e.target.value)}
               placeholder="Your transcription will appear here..."
               className="w-full h-52 p-5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/30 resize-none focus:outline-none focus:border-white/30 transition-colors text-base leading-relaxed"
             />
           </div>
 
-          {transcript && !isRecording && !isProcessing && (
+          {/* Detected correction prompt */}
+          {detectedCorrection && !isRecording && !isProcessing && (
+            <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <div className="flex-shrink-0">
+                <DictionaryIcon className="w-5 h-5 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white">
+                  Add to dictionary?{' '}
+                  <span className="text-white/60">"{detectedCorrection.original}"</span>
+                  <span className="text-white/40 mx-1.5">&rarr;</span>
+                  <span className="text-blue-400 font-medium">"{detectedCorrection.corrected}"</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={onDismissCorrection}
+                  className="px-3 py-1.5 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                >
+                  Dismiss
+                </button>
+                <button
+                  onClick={onAddCorrection}
+                  className="px-3 py-1.5 text-sm font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          )}
+
+          {originalTranscript && !isRecording && !isProcessing && !detectedCorrection && (
             <div className="flex items-center gap-2 text-white/60 text-sm">
               <CheckIcon className="w-4 h-4" />
               <span>Text typed at cursor</span>

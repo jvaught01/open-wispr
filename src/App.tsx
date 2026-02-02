@@ -4,7 +4,7 @@ import { RecordingOverlay } from './components/RecordingOverlay';
 import { OnboardingPage } from './components/onboarding';
 import { useRecording } from './hooks/useRecording';
 import { transcribeAudio, analyzeSentiment, SentimentResult } from './services/groq';
-import { postProcessTranscription, PostProcessingOptions } from './services/postProcessing';
+import { postProcessTranscription, PostProcessingOptions, DictionaryEntry } from './services/postProcessing';
 import './index.css';
 
 interface Settings {
@@ -40,6 +40,10 @@ declare global {
       addToHistory: (record: TranscriptionRecord) => Promise<TranscriptionRecord[]>;
       clearHistory: () => Promise<void>;
       deleteHistoryItem: (id: string) => Promise<TranscriptionRecord[]>;
+      getDictionary: () => Promise<DictionaryEntry[]>;
+      addDictionaryEntry: (entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => Promise<DictionaryEntry[]>;
+      updateDictionaryEntry: (id: string, updates: Partial<DictionaryEntry>) => Promise<DictionaryEntry[]>;
+      deleteDictionaryEntry: (id: string) => Promise<DictionaryEntry[]>;
       clearAllData: () => Promise<void>;
       testApiKey: (apiKey: string) => Promise<boolean>;
       onRecordingStart: (callback: () => void) => void;
@@ -87,6 +91,7 @@ function MainApp() {
   const [wordsThisMonth, setWordsThisMonth] = useState(0);
   const [wordsTotal, setWordsTotal] = useState(0);
   const [history, setHistory] = useState<TranscriptionRecord[]>([]);
+  const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
 
   const { isRecording, audioData, startRecording: _startRecording, stopRecording } = useRecording();
@@ -122,12 +127,17 @@ function MainApp() {
       setHistory(h);
     });
 
+    // Load dictionary
+    window.electron.getDictionary().then((d) => {
+      setDictionary(d);
+    });
+
     // Listen for settings open request
     window.electron.onOpenSettings(() => {
       // Settings is now in sidebar, so just focus the window
     });
 
-    // Refresh stats and history periodically
+    // Refresh stats, history, and dictionary periodically
     const interval = setInterval(() => {
       window.electron.getWordStats().then((stats) => {
         setWordsThisMonth(stats.wordsThisMonth);
@@ -136,6 +146,10 @@ function MainApp() {
       // Refresh history to pick up items added by overlay
       window.electron.getHistory().then((h) => {
         setHistory(h);
+      });
+      // Refresh dictionary
+      window.electron.getDictionary().then((d) => {
+        setDictionary(d);
       });
     }, 3000);
 
@@ -172,6 +186,7 @@ function MainApp() {
           fixCapitalization: true,
           fixGrammar: settings.fixGrammar,
           smartFormatting: false,
+          dictionary: dictionary,
         };
         text = await postProcessTranscription(text, settings.apiKey, postProcessOptions);
       }
@@ -202,12 +217,10 @@ function MainApp() {
       const sentimentResult = await analyzeSentiment(text, settings.apiKey);
       setSentiment(sentimentResult);
 
-      // Type text at cursor or copy to clipboard based on settings
-      if (settings.outputMode === 'clipboard') {
-        await window.electron.copyToClipboard(text);
-      } else {
-        await window.electron.typeText(text);
-      }
+      // In the main window "Try It Out" section, the text is already displayed
+      // in the textarea via React state, so we don't need to paste externally.
+      // Just copy to clipboard for easy access.
+      await window.electron.copyToClipboard(text);
     } catch (error) {
       console.error('Processing error:', error);
       setTranscript('Error: ' + (error as Error).message);
@@ -242,6 +255,21 @@ function MainApp() {
     setHistory(newHistory);
   };
 
+  const handleAddDictionaryEntry = async (entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => {
+    const newDictionary = await window.electron.addDictionaryEntry(entry);
+    setDictionary(newDictionary);
+  };
+
+  const handleUpdateDictionaryEntry = async (id: string, updates: Partial<DictionaryEntry>) => {
+    const newDictionary = await window.electron.updateDictionaryEntry(id, updates);
+    setDictionary(newDictionary);
+  };
+
+  const handleDeleteDictionaryEntry = async (id: string) => {
+    const newDictionary = await window.electron.deleteDictionaryEntry(id);
+    setDictionary(newDictionary);
+  };
+
   // Show loading state while checking onboarding status
   if (showOnboarding === null) {
     return (
@@ -266,11 +294,15 @@ function MainApp() {
       wordsThisMonth={wordsThisMonth}
       wordsTotal={wordsTotal}
       history={history}
+      dictionary={dictionary}
       onStopRecording={handleStopRecording}
       onClose={handleClose}
       onSettingsChange={handleSettingsChange}
       onClearHistory={handleClearHistory}
       onDeleteHistoryItem={handleDeleteHistoryItem}
+      onAddDictionaryEntry={handleAddDictionaryEntry}
+      onUpdateDictionaryEntry={handleUpdateDictionaryEntry}
+      onDeleteDictionaryEntry={handleDeleteDictionaryEntry}
     />
   );
 }

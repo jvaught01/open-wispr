@@ -45,6 +45,15 @@ export interface AudioDevice {
   label: string;
 }
 
+export interface DictionaryEntry {
+  id: string;
+  original: string;
+  corrected: string;
+  caseSensitive: boolean;
+  enabled: boolean;
+  createdAt: number;
+}
+
 export interface ElectronAPI {
   getSettings: () => Promise<Settings>;
   saveSettings: (settings: Partial<Settings>) => Promise<boolean>;
@@ -56,6 +65,10 @@ export interface ElectronAPI {
   addToHistory: (record: TranscriptionRecord) => Promise<TranscriptionRecord[]>;
   clearHistory: () => Promise<void>;
   deleteHistoryItem: (id: string) => Promise<TranscriptionRecord[]>;
+  getDictionary: () => Promise<DictionaryEntry[]>;
+  addDictionaryEntry: (entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => Promise<DictionaryEntry[]>;
+  updateDictionaryEntry: (id: string, updates: Partial<DictionaryEntry>) => Promise<DictionaryEntry[]>;
+  deleteDictionaryEntry: (id: string) => Promise<DictionaryEntry[]>;
   clearAllData: () => Promise<void>;
   testApiKey: (apiKey: string) => Promise<boolean>;
   onRecordingStart: (callback: () => void) => void;
@@ -77,6 +90,10 @@ contextBridge.exposeInMainWorld('electron', {
   addToHistory: (record: TranscriptionRecord) => ipcRenderer.invoke('add-to-history', record),
   clearHistory: () => ipcRenderer.invoke('clear-history'),
   deleteHistoryItem: (id: string) => ipcRenderer.invoke('delete-history-item', id),
+  getDictionary: () => ipcRenderer.invoke('get-dictionary'),
+  addDictionaryEntry: (entry: Omit<DictionaryEntry, 'id' | 'createdAt'>) => ipcRenderer.invoke('add-dictionary-entry', entry),
+  updateDictionaryEntry: (id: string, updates: Partial<DictionaryEntry>) => ipcRenderer.invoke('update-dictionary-entry', id, updates),
+  deleteDictionaryEntry: (id: string) => ipcRenderer.invoke('delete-dictionary-entry', id),
   clearAllData: () => ipcRenderer.invoke('clear-all-data'),
   testApiKey: (apiKey: string) => ipcRenderer.invoke('test-api-key', apiKey),
   onRecordingStart: (callback: () => void) => {
