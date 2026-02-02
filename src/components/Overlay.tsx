@@ -37,8 +37,9 @@ interface OverlayProps {
 }
 
 function formatHotkey(hotkey: string): string {
+  const isMac = navigator.platform.toLowerCase().includes('mac');
   return hotkey
-    .replace('CommandOrControl', 'Ctrl')
+    .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
     .replace('Command', 'Cmd')
     .replace('Control', 'Ctrl')
     .replace(/\+/g, ' + ');

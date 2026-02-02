@@ -24,8 +24,9 @@ const EXPANDED_WIDTH = 120;
 const EXPANDED_HEIGHT = 32;
 
 function formatHotkey(hotkey: string): string {
+  const isMac = navigator.platform.toLowerCase().includes('mac');
   return hotkey
-    .replace('CommandOrControl', 'Ctrl')
+    .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
     .replace('Command', 'Cmd')
     .replace('Control', 'Ctrl')
     .replace('Super', 'Win')
