@@ -24,6 +24,7 @@ let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isRecording = false;
+let isQuitting = false;
 
 const DIST = path.join(__dirname, '../dist');
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -95,6 +96,15 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(DIST, 'index.html'));
   }
+
+  // Hide to tray instead of closing (so it can be reopened)
+  mainWindow.on('close', (event) => {
+    // Only hide if not actually quitting
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -228,6 +238,7 @@ function createTray() {
     {
       label: 'Quit',
       click: () => {
+        isQuitting = true;
         app.quit();
       },
     },
@@ -784,6 +795,10 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
 });
 
 app.on('will-quit', () => {
