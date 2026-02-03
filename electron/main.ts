@@ -132,8 +132,9 @@ function createOverlayWindow() {
   // Keep it always on top at the highest level
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
 
-  // Allow mouse events but don't take focus
-  overlayWindow.setIgnoreMouseEvents(false);
+  // Allow clicks to pass through transparent areas, but still detect mouse on the pill
+  // forward: true means mouse events are forwarded to Chromium for hit-testing
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
   if (VITE_DEV_SERVER_URL) {
     overlayWindow.loadURL(`${VITE_DEV_SERVER_URL}#overlay`);
@@ -737,6 +738,19 @@ function playSound(type: 'start' | 'stop' | 'error') {
 
 ipcMain.on('play-sound', (_, type: 'start' | 'stop' | 'error') => {
   playSound(type);
+});
+
+// Handle mouse event pass-through for overlay window
+ipcMain.on('set-ignore-mouse-events', (_, ignore: boolean) => {
+  if (overlayWindow) {
+    if (ignore) {
+      // Pass through clicks on transparent areas, forward for hit-testing
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    } else {
+      // Capture mouse events (when hovering over the pill)
+      overlayWindow.setIgnoreMouseEvents(false);
+    }
+  }
 });
 
 // App lifecycle

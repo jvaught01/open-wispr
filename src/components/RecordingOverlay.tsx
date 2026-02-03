@@ -453,8 +453,16 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
 
       {/* Pill */}
       <div
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseEnter={() => {
+          setIsHovered(true);
+          // Capture mouse events when hovering the pill
+          window.electron.setIgnoreMouseEvents(false);
+        }}
+        onMouseLeave={() => {
+          setIsHovered(false);
+          // Allow clicks to pass through when not on the pill
+          window.electron.setIgnoreMouseEvents(true);
+        }}
         onClick={handleClick}
         className="cursor-pointer transition-all duration-200 flex items-center justify-center overflow-hidden"
         style={{

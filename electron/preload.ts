@@ -77,6 +77,7 @@ export interface ElectronAPI {
   recordingStopped: () => void;
   hideWindow: () => void;
   playSound: (sound: 'start' | 'stop' | 'error') => void;
+  setIgnoreMouseEvents: (ignore: boolean) => void;
 }
 
 contextBridge.exposeInMainWorld('electron', {
@@ -116,5 +117,8 @@ contextBridge.exposeInMainWorld('electron', {
   },
   playSound: (sound: 'start' | 'stop' | 'error') => {
     ipcRenderer.send('play-sound', sound);
+  },
+  setIgnoreMouseEvents: (ignore: boolean) => {
+    ipcRenderer.send('set-ignore-mouse-events', ignore);
   },
 } as ElectronAPI);

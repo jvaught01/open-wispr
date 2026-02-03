@@ -52,6 +52,7 @@ declare global {
       recordingStopped: () => void;
       hideWindow: () => void;
       playSound: (sound: 'start' | 'stop' | 'error') => void;
+      setIgnoreMouseEvents: (ignore: boolean) => void;
     };
   }
 }
