@@ -7,16 +7,19 @@ import {
   Menu,
   nativeImage,
   clipboard,
+  systemPreferences,
 } from 'electron';
 import { exec } from 'child_process';
 import path from 'path';
 import Store from 'electron-store';
 
-// Disable GPU acceleration to prevent crashes
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-gpu-compositing');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
+// Disable GPU acceleration on non-macOS to prevent crashes
+if (process.platform !== 'darwin') {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
 
 const store = new Store();
 
@@ -161,8 +164,7 @@ function createTray() {
   let trayIcon: Electron.NativeImage;
 
   if (process.platform === 'darwin') {
-    // macOS: Load the app icon and resize for menu bar
-    // NOT using template mode since our icon is colorful/white
+    // macOS: Use template image for proper menu bar appearance in light/dark mode
     try {
       trayIcon = nativeImage.createFromPath(getAssetPath('icon.png'));
 
@@ -172,8 +174,8 @@ function createTray() {
 
       // Resize to 18x18 for macOS menu bar
       trayIcon = trayIcon.resize({ width: 18, height: 18 });
+      trayIcon.setTemplateImage(true);
 
-      // Don't set as template - our icon is already designed for visibility
       console.log('macOS tray icon ready, size:', trayIcon.getSize());
     } catch (err) {
       console.error('Failed to load macOS tray icon:', err);
@@ -181,6 +183,7 @@ function createTray() {
       trayIcon = nativeImage.createFromDataURL(
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC'
       );
+      trayIcon.setTemplateImage(true);
     }
   } else {
     // Windows/Linux: Use regular colored icon
@@ -300,11 +303,11 @@ function registerHotkeys() {
 
             const modifiers = stdout.trim();
 
-            // Check if the required modifiers are still held
-            let stillHeld = false;
-            if (hasCtrl && modifiers.includes('Control')) stillHeld = true;
-            if (hasShift && modifiers.includes('Shift')) stillHeld = true;
-            if (hasAlt && modifiers.includes('Alt')) stillHeld = true;
+            // Check if ALL required modifiers are still held (AND logic)
+            let stillHeld = true;
+            if (hasCtrl && !modifiers.includes('Control')) stillHeld = false;
+            if (hasShift && !modifiers.includes('Shift')) stillHeld = false;
+            if (hasAlt && !modifiers.includes('Alt')) stillHeld = false;
             // Windows key is harder to detect via ModifierKeys, use a simpler approach
             if (hasWin) stillHeld = true; // For Win key combos, use timeout instead
 
@@ -335,10 +338,15 @@ function registerHotkeys() {
         setTimeout(checkKeys, 300);
       } else if (process.platform === 'darwin') {
         // macOS: Use JXA (JavaScript for Automation) to query NSEvent.modifierFlags
+        let pollInFlight = false;
         const checkKeysMac = () => {
           if (!isRecording) return;
+          if (pollInFlight) {
+            setTimeout(checkKeysMac, 150);
+            return;
+          }
 
-          // Use osascript with JXA to get current modifier key state
+          pollInFlight = true;
           const script = `osascript -l JavaScript -e '
             ObjC.import("Cocoa");
             var flags = $.NSEvent.modifierFlags;
@@ -350,20 +358,21 @@ function registerHotkeys() {
           '`;
 
           exec(script, (error, stdout) => {
+            pollInFlight = false;
             if (error) {
-              setTimeout(checkKeysMac, 100);
+              setTimeout(checkKeysMac, 150);
               return;
             }
 
             try {
               const modifiers = JSON.parse(stdout.trim());
 
-              // Check if the required modifiers are still held
-              let stillHeld = false;
-              if (hasCmd && modifiers.command) stillHeld = true;
-              if (hasCtrl && modifiers.control) stillHeld = true;
-              if (hasShift && modifiers.shift) stillHeld = true;
-              if (hasAlt && modifiers.option) stillHeld = true;
+              // Check if ALL required modifiers are still held (AND logic)
+              let stillHeld = true;
+              if (hasCmd && !modifiers.command) stillHeld = false;
+              if (hasCtrl && !modifiers.control) stillHeld = false;
+              if (hasShift && !modifiers.shift) stillHeld = false;
+              if (hasAlt && !modifiers.option) stillHeld = false;
 
               if (!stillHeld) {
                 if (isRecording) {
@@ -372,10 +381,10 @@ function registerHotkeys() {
                   updateTrayIcon(false);
                 }
               } else {
-                setTimeout(checkKeysMac, 100);
+                setTimeout(checkKeysMac, 150);
               }
             } catch {
-              setTimeout(checkKeysMac, 100);
+              setTimeout(checkKeysMac, 150);
             }
           });
         };
@@ -602,9 +611,6 @@ ipcMain.handle('type-text', async (_, text: string) => {
 
     if (process.platform === 'win32') {
       return new Promise((resolve) => {
-        // Use PowerShell to simulate Ctrl+V paste
-        // Use -WindowStyle Hidden to prevent PowerShell window flash
-        // Add small delay after assembly load to ensure it's ready
         const psCommand = `powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 50; [System.Windows.Forms.SendKeys]::SendWait('^v')"`;
         exec(psCommand, { windowsHide: true }, (error, stdout, stderr) => {
           if (error) {
@@ -615,8 +621,15 @@ ipcMain.handle('type-text', async (_, text: string) => {
         });
       });
     } else if (process.platform === 'darwin') {
+      // Check accessibility permission before attempting paste
+      const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+      if (!trusted) {
+        console.error('Accessibility permission not granted - prompting user');
+        systemPreferences.isTrustedAccessibilityClient(true);
+        return false;
+      }
+
       return new Promise((resolve) => {
-        // Use AppleScript to simulate Cmd+V paste
         const script = `osascript -e 'tell application "System Events" to keystroke "v" using command down'`;
         exec(script, (error, stdout, stderr) => {
           if (error) {
@@ -730,6 +743,24 @@ ipcMain.handle('test-api-key', async (_, apiKey: string) => {
   }
   // For now, just validate format. Real validation would require an API call.
   return apiKey.length > 20;
+});
+
+ipcMain.handle('check-accessibility', () => {
+  if (process.platform === 'darwin') {
+    return systemPreferences.isTrustedAccessibilityClient(false);
+  }
+  return true;
+});
+
+ipcMain.handle('request-accessibility', () => {
+  if (process.platform === 'darwin') {
+    return systemPreferences.isTrustedAccessibilityClient(true);
+  }
+  return true;
+});
+
+ipcMain.handle('get-platform', () => {
+  return process.platform;
 });
 
 // Sound playback

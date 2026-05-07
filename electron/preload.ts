@@ -71,9 +71,13 @@ export interface ElectronAPI {
   deleteDictionaryEntry: (id: string) => Promise<DictionaryEntry[]>;
   clearAllData: () => Promise<void>;
   testApiKey: (apiKey: string) => Promise<boolean>;
+  checkAccessibility: () => Promise<boolean>;
+  requestAccessibility: () => Promise<boolean>;
+  getPlatform: () => Promise<string>;
   onRecordingStart: (callback: () => void) => void;
   onRecordingStop: (callback: () => void) => void;
   onOpenSettings: (callback: () => void) => void;
+  onSettingsChanged: (callback: (settings: { showPill?: boolean; pillVisibility?: string }) => void) => void;
   recordingStopped: () => void;
   hideWindow: () => void;
   playSound: (sound: 'start' | 'stop' | 'error') => void;
@@ -97,6 +101,9 @@ contextBridge.exposeInMainWorld('electron', {
   deleteDictionaryEntry: (id: string) => ipcRenderer.invoke('delete-dictionary-entry', id),
   clearAllData: () => ipcRenderer.invoke('clear-all-data'),
   testApiKey: (apiKey: string) => ipcRenderer.invoke('test-api-key', apiKey),
+  checkAccessibility: () => ipcRenderer.invoke('check-accessibility'),
+  requestAccessibility: () => ipcRenderer.invoke('request-accessibility'),
+  getPlatform: () => ipcRenderer.invoke('get-platform'),
   onRecordingStart: (callback: () => void) => {
     ipcRenderer.removeAllListeners('recording-start');
     ipcRenderer.on('recording-start', callback);
@@ -108,6 +115,10 @@ contextBridge.exposeInMainWorld('electron', {
   onOpenSettings: (callback: () => void) => {
     ipcRenderer.removeAllListeners('open-settings');
     ipcRenderer.on('open-settings', callback);
+  },
+  onSettingsChanged: (callback: (settings: { showPill?: boolean; pillVisibility?: string }) => void) => {
+    ipcRenderer.removeAllListeners('settings-changed');
+    ipcRenderer.on('settings-changed', (_, settings) => callback(settings));
   },
   recordingStopped: () => {
     ipcRenderer.send('recording-stopped');

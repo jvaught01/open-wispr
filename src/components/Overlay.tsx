@@ -36,8 +36,14 @@ interface OverlayProps {
   onDeleteDictionaryEntry: (id: string) => void;
 }
 
+function isMacPlatform(): boolean {
+  return (navigator as any).userAgentData?.platform === 'macOS' ||
+    navigator.platform?.toLowerCase().includes('mac') ||
+    navigator.userAgent.toLowerCase().includes('mac');
+}
+
 function formatHotkey(hotkey: string): string {
-  const isMac = navigator.platform.toLowerCase().includes('mac');
+  const isMac = isMacPlatform();
   return hotkey
     .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
     .replace('Command', 'Cmd')

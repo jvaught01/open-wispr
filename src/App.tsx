@@ -46,9 +46,13 @@ declare global {
       deleteDictionaryEntry: (id: string) => Promise<DictionaryEntry[]>;
       clearAllData: () => Promise<void>;
       testApiKey: (apiKey: string) => Promise<boolean>;
+      checkAccessibility: () => Promise<boolean>;
+      requestAccessibility: () => Promise<boolean>;
+      getPlatform: () => Promise<string>;
       onRecordingStart: (callback: () => void) => void;
       onRecordingStop: (callback: () => void) => void;
       onOpenSettings: (callback: () => void) => void;
+      onSettingsChanged: (callback: (settings: { showPill?: boolean; pillVisibility?: string }) => void) => void;
       recordingStopped: () => void;
       hideWindow: () => void;
       playSound: (sound: 'start' | 'stop' | 'error') => void;

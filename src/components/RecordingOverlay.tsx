@@ -23,8 +23,14 @@ const COLLAPSED_HEIGHT = 6;
 const EXPANDED_WIDTH = 120;
 const EXPANDED_HEIGHT = 32;
 
+function isMacPlatform(): boolean {
+  return (navigator as any).userAgentData?.platform === 'macOS' ||
+    navigator.platform?.toLowerCase().includes('mac') ||
+    navigator.userAgent.toLowerCase().includes('mac');
+}
+
 function formatHotkey(hotkey: string): string {
-  const isMac = navigator.platform.toLowerCase().includes('mac');
+  const isMac = isMacPlatform();
   return hotkey
     .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
     .replace('Command', 'Cmd')
@@ -106,13 +112,22 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
       dictionaryRef.current = dictionary;
     };
 
-    // Load on mount and periodically check for changes
+    // Load on mount
     loadSettings();
     loadDictionary();
+
+    // Listen for settings-changed IPC from main process
+    window.electron.onSettingsChanged((newSettings) => {
+      if (newSettings.pillVisibility) {
+        setPillVisibility(newSettings.pillVisibility as 'always' | 'recording' | 'never');
+      }
+    });
+
+    // Periodically reload full settings and dictionary
     const interval = setInterval(() => {
       loadSettings();
       loadDictionary();
-    }, 2000);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -264,8 +279,15 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
       chunksRef.current = [];
       setError(null);
 
+      // Use preferred microphone if configured
+      const settings = settingsRef.current;
+      const deviceId = settings?.preferredMicrophone && settings.preferredMicrophone !== 'default'
+        ? settings.preferredMicrophone
+        : undefined;
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
           echoCancellation: true,
           noiseSuppression: true,
           sampleRate: 16000,
@@ -274,8 +296,15 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
 
       streamRef.current = stream;
 
+      // Play start sound
+      window.electron.playSound('start');
+
       // Set up audio analysis for waveform visualization
       const audioContext = new AudioContext();
+      // Resume AudioContext in case it starts suspended (no user gesture context from IPC)
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.4;
@@ -365,14 +394,20 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
             }
             const pasteSuccess = await window.electron.typeText(text);
             if (!pasteSuccess) {
-              console.warn('Paste may have failed - text is in clipboard');
+              setError('No access');
+              window.electron.playSound('error');
+              setTimeout(() => setError(null), 3000);
+            } else {
+              window.electron.playSound('stop');
             }
           } else {
             setError('Empty result');
+            window.electron.playSound('error');
           }
         } catch (err: any) {
           console.error('Transcription error:', err);
           setError(err.message?.slice(0, 15) || 'Error');
+          window.electron.playSound('error');
           setTimeout(() => setError(null), 3000);
         } finally {
           setIsProcessing(false);

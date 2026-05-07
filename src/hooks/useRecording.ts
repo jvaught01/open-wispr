@@ -92,6 +92,9 @@ export function useRecording(): UseRecordingReturn {
 
 async function convertToWav(blob: Blob): Promise<Blob> {
   const audioContext = new AudioContext({ sampleRate: 16000 });
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
 
   try {
     const arrayBuffer = await blob.arrayBuffer();

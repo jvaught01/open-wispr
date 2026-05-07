@@ -111,7 +111,8 @@ export function SettingsPanel({ onSettingsChange }: SettingsPanelProps) {
   // Hotkey capture handlers - detect platform
   const isMac = useMemo(() => {
     if (typeof navigator !== 'undefined') {
-      return navigator.platform.toUpperCase().indexOf('MAC') >= 0 ||
+      return (navigator as any).userAgentData?.platform === 'macOS' ||
+             navigator.platform?.toUpperCase().indexOf('MAC') >= 0 ||
              navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
     }
     return false;
