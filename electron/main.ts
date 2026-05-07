@@ -164,26 +164,26 @@ function createTray() {
   let trayIcon: Electron.NativeImage;
 
   if (process.platform === 'darwin') {
-    // macOS: Use template image for proper menu bar appearance in light/dark mode
+    // macOS: Use the 16x16 icon resized for menu bar
+    // NOT using template mode — our icon is white-on-transparent, not black-on-transparent
     try {
-      trayIcon = nativeImage.createFromPath(getAssetPath('icon.png'));
+      trayIcon = nativeImage.createFromPath(getAssetPath('macos', '16x16.png'));
 
       if (trayIcon.isEmpty()) {
-        throw new Error('Icon file not found');
+        // Try the general icon and resize
+        trayIcon = nativeImage.createFromPath(getAssetPath('icon.png'));
+        if (trayIcon.isEmpty()) {
+          throw new Error('Icon file not found');
+        }
+        trayIcon = trayIcon.resize({ width: 18, height: 18 });
       }
-
-      // Resize to 18x18 for macOS menu bar
-      trayIcon = trayIcon.resize({ width: 18, height: 18 });
-      trayIcon.setTemplateImage(true);
 
       console.log('macOS tray icon ready, size:', trayIcon.getSize());
     } catch (err) {
       console.error('Failed to load macOS tray icon:', err);
-      // Fallback to embedded icon
       trayIcon = nativeImage.createFromDataURL(
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAABDklEQVR4nGNgGAWjAAYYmJiYGP7//8/AwMDAICUlxfD//38GBgYGBkZGRob///8ziIuLM/z584fh379/DH///mVgYGBgYGZmZpCQkGD4/fs3w58/fxj+/v3LwMDAwMDCwsIgJibG8OvXL4bfv38z/Pnzh4GBgYGBhYWFQVRUlOHnz58Mv379Yvjz5w8DAwMDA8u/f/8YRERE/v/48YPh58+fDL9//2b4//8/AwMDAwPL379/GYSFRT78+PGD4efPnwy/fv1i+PfvHwMDAwMDy+/fvxmEhIQ+fP/+neHHjx8MP3/+ZPj9+zcDAwMDA8uvX78YBAUFPzAwMDB8//6d4cePHww/f/5k+P37NwMDAwMD4ygAAOuhQYJwNjcnAAAAAElFTkSuQmCC'
       );
-      trayIcon.setTemplateImage(true);
     }
   } else {
     // Windows/Linux: Use regular colored icon
@@ -398,17 +398,32 @@ function registerHotkeys() {
     console.log('Hotkey registered successfully:', hotkey);
   } else {
     console.error('Failed to register hotkey:', hotkey);
-    // Try with a fallback hotkey
-    const fallback = 'CommandOrControl+Shift+Space';
-    if (hotkey !== fallback) {
+
+    // On macOS, Cmd+Shift+Space is often reserved for Input Sources.
+    // Try a fallback that doesn't conflict.
+    const fallbacks = ['Alt+Space', 'CommandOrControl+Shift+D', 'F9'];
+    let registered = false;
+    for (const fallback of fallbacks) {
+      if (hotkey === fallback) continue;
       console.log('Trying fallback hotkey:', fallback);
-      globalShortcut.register(fallback, () => {
+      registered = globalShortcut.register(fallback, () => {
         if (!isRecording) {
           isRecording = true;
           overlayWindow?.webContents.send('recording-start');
           updateTrayIcon(true);
         }
       });
+      if (registered) {
+        console.log('Fallback hotkey registered:', fallback);
+        // Notify the user that their hotkey didn't work
+        mainWindow?.webContents.send('hotkey-registration-failed', { requested: hotkey, active: fallback });
+        store.set('hotkey', fallback);
+        break;
+      }
+    }
+    if (!registered) {
+      console.error('All hotkey fallbacks failed');
+      mainWindow?.webContents.send('hotkey-registration-failed', { requested: hotkey, active: null });
     }
   }
 }
@@ -421,24 +436,17 @@ function updateTrayIcon(recording: boolean) {
   console.log('updateTrayIcon:', recording ? 'recording' : 'idle');
 
   if (process.platform === 'darwin') {
-    // macOS: Use template image (black on transparent)
-    // Same icon for both states - recording state shown in overlay
-    const blackMicrophoneIcon =
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAA' +
-      'AQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAAO' +
-      'wwAADsMBx2+oZAAAABl0RVh0U29mdHdhcmUAcGFpbnQubmV0ID' +
-      'QuMC4xMkMEa+wAAADISURBVDhPrZLBDYMwDEV/OkQ3YAPYoBu0' +
-      'G7BBN+gGsAEbdINu0A3aDegGpL+Rk5AEVKkn/QTB/s+O7QRJDJ' +
-      'mZE+AKwMnMggVnYGNmhwQ4BWBrZqEBiTGzSII1sEOGJBJYA1tk' +
-      'aEBiDGyQIQEr4Bb+TDewBFbIMBNYAzfAfwNWwBIZZgJr4AY4AE' +
-      'tgCdySYSqwBm7A36rAAlgiw1RgBdyA+0uwABbAEhkmAmvgBvyt' +
-      'IZgDC2AJLIBbMkwE1sANuP8Ec2ABLIAFcEuGfwOSL/uTXDqp97' +
-      '/hAAAAAElFTkSuQmCC';
-
+    // macOS: Swap between normal and recording icon
+    // Use the app icon for both states — recording state is shown via the overlay pill
     try {
-      let icon = nativeImage.createFromDataURL(blackMicrophoneIcon);
+      let icon = nativeImage.createFromPath(getAssetPath('macos', '16x16.png'));
+      if (icon.isEmpty()) {
+        icon = nativeImage.createFromPath(getAssetPath('icon.png'));
+        if (!icon.isEmpty()) {
+          icon = icon.resize({ width: 18, height: 18 });
+        }
+      }
       if (!icon.isEmpty()) {
-        icon.setTemplateImage(true);
         tray.setImage(icon);
       }
     } catch (err) {
