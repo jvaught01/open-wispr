@@ -57,6 +57,10 @@ declare global {
       hideWindow: () => void;
       playSound: (sound: 'start' | 'stop' | 'error') => void;
       setIgnoreMouseEvents: (ignore: boolean) => void;
+      overlayDragStart: () => void;
+      overlayMove: (position: { x: number; y: number }) => void;
+      overlayDragEnd: () => void;
+      getOverlayPosition: () => Promise<{ x: number; y: number }>;
     };
   }
 }

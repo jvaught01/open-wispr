@@ -82,6 +82,10 @@ export interface ElectronAPI {
   hideWindow: () => void;
   playSound: (sound: 'start' | 'stop' | 'error') => void;
   setIgnoreMouseEvents: (ignore: boolean) => void;
+  overlayDragStart: () => void;
+  overlayMove: (position: { x: number; y: number }) => void;
+  overlayDragEnd: () => void;
+  getOverlayPosition: () => Promise<{ x: number; y: number }>;
 }
 
 contextBridge.exposeInMainWorld('electron', {
@@ -132,4 +136,14 @@ contextBridge.exposeInMainWorld('electron', {
   setIgnoreMouseEvents: (ignore: boolean) => {
     ipcRenderer.send('set-ignore-mouse-events', ignore);
   },
+  overlayDragStart: () => {
+    ipcRenderer.send('overlay-drag-start');
+  },
+  overlayMove: (position: { x: number; y: number }) => {
+    ipcRenderer.send('overlay-move', position);
+  },
+  overlayDragEnd: () => {
+    ipcRenderer.send('overlay-drag-end');
+  },
+  getOverlayPosition: () => ipcRenderer.invoke('get-overlay-position'),
 } as ElectronAPI);

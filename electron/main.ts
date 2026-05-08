@@ -122,11 +122,17 @@ function createOverlayWindow() {
   const overlayWidth = 280;
   const overlayHeight = 96;
 
+  // Load saved position or default to bottom center
+  const savedX = store.get('overlayX') as number | undefined;
+  const savedY = store.get('overlayY') as number | undefined;
+  const startX = savedX !== undefined ? savedX : Math.round((width - overlayWidth) / 2);
+  const startY = savedY !== undefined ? savedY : height - overlayHeight;
+
   overlayWindow = new BrowserWindow({
     width: overlayWidth,
     height: overlayHeight,
-    x: Math.round((width - overlayWidth) / 2),
-    y: height - overlayHeight, // Position at bottom of screen
+    x: startX,
+    y: startY,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -794,13 +800,38 @@ ipcMain.on('play-sound', (_, type: 'start' | 'stop' | 'error') => {
 ipcMain.on('set-ignore-mouse-events', (_, ignore: boolean) => {
   if (overlayWindow) {
     if (ignore) {
-      // Pass through clicks on transparent areas, forward for hit-testing
       overlayWindow.setIgnoreMouseEvents(true, { forward: true });
     } else {
-      // Capture mouse events (when hovering over the pill)
       overlayWindow.setIgnoreMouseEvents(false);
     }
   }
+});
+
+// Overlay window dragging
+ipcMain.on('overlay-drag-start', () => {
+  // Nothing needed on start — position tracking is in the renderer
+});
+
+ipcMain.on('overlay-move', (_, { x, y }: { x: number; y: number }) => {
+  if (overlayWindow) {
+    overlayWindow.setPosition(Math.round(x), Math.round(y), false);
+  }
+});
+
+ipcMain.on('overlay-drag-end', () => {
+  if (overlayWindow) {
+    const [x, y] = overlayWindow.getPosition();
+    store.set('overlayX', x);
+    store.set('overlayY', y);
+  }
+});
+
+ipcMain.handle('get-overlay-position', () => {
+  if (overlayWindow) {
+    const [x, y] = overlayWindow.getPosition();
+    return { x, y };
+  }
+  return { x: 0, y: 0 };
 });
 
 // App lifecycle

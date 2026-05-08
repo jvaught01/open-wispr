@@ -156,6 +156,10 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
   const currentLevelRef = useRef(0);
   const targetLevelRef = useRef(0);
 
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; winX: number; winY: number } | null>(null);
+
   const displayHotkey = formatHotkey(hotkey);
   const isIdle = !isRecording && !isProcessing;
   const isExpanded = isHovered || isRecording || isProcessing;
@@ -450,7 +454,53 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
     }
   };
 
+  const didDragRef = useRef(false);
+
+  const handleMouseDown = async (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const pos = await window.electron.getOverlayPosition();
+    dragStartRef.current = {
+      mouseX: e.screenX,
+      mouseY: e.screenY,
+      winX: pos.x,
+      winY: pos.y,
+    };
+    didDragRef.current = false;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const dx = ev.screenX - dragStartRef.current.mouseX;
+      const dy = ev.screenY - dragStartRef.current.mouseY;
+
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        if (!didDragRef.current) {
+          didDragRef.current = true;
+          setIsDragging(true);
+          window.electron.overlayDragStart();
+        }
+        window.electron.overlayMove({
+          x: dragStartRef.current.winX + dx,
+          y: dragStartRef.current.winY + dy,
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (didDragRef.current) {
+        window.electron.overlayDragEnd();
+        setIsDragging(false);
+      }
+      dragStartRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
   const handleClick = () => {
+    if (didDragRef.current) return;
     if (isRecording) {
       stopRecording();
     } else if (!isProcessing) {
@@ -490,16 +540,17 @@ export function RecordingOverlay({ hotkey: initialHotkey }: RecordingOverlayProp
       <div
         onMouseEnter={() => {
           setIsHovered(true);
-          // Capture mouse events when hovering the pill
           window.electron.setIgnoreMouseEvents(false);
         }}
         onMouseLeave={() => {
-          setIsHovered(false);
-          // Allow clicks to pass through when not on the pill
-          window.electron.setIgnoreMouseEvents(true);
+          if (!isDragging) {
+            setIsHovered(false);
+            window.electron.setIgnoreMouseEvents(true);
+          }
         }}
+        onMouseDown={handleMouseDown}
         onClick={handleClick}
-        className="cursor-pointer transition-all duration-200 flex items-center justify-center overflow-hidden"
+        className={`${isDragging ? 'cursor-grabbing' : 'cursor-pointer'} transition-all duration-200 flex items-center justify-center overflow-hidden`}
         style={{
           width: isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH,
           height: isExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT,
